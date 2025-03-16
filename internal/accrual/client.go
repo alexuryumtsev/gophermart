@@ -53,7 +53,7 @@ func (c *AccrualClient) GetOrderAccrual(orderNumber string) (*AccrualResponse, e
 		}
 
 		// Делаем запрос к API
-		response, err, shouldRetry, waitTime := c.makeRequest(orderNumber)
+		response, shouldRetry, waitTime, err := c.makeRequest(orderNumber)
 
 		// Если нет ошибки или не нужно повторять запрос, возвращаем результат
 		if err == nil || !shouldRetry {
