@@ -1,13 +1,22 @@
-// accrual/client.go
+// internal/accrual/client.go
 package accrual
 
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/alexuryumtsev/gophermart/internal/model"
+)
+
+// настройки для ретраев
+const (
+	maxRetries     = 3   // Максимальное количество повторных попыток
+	defaultBackoff = 60  // Время ожидания по умолчанию в секундах
+	maxBackoff     = 300 // Максимальное время ожидания в секундах
 )
 
 type AccrualClient struct {
@@ -30,12 +39,61 @@ func NewAccrualClient(baseURL string) *AccrualClient {
 	}
 }
 
+// GetOrderAccrual делает запрос к системе расчета начислений для получения информации по заказу
+// с автоматическими повторными попытками в случае ошибок превышения лимита запросов
 func (c *AccrualClient) GetOrderAccrual(orderNumber string) (*AccrualResponse, error) {
+	var lastErr error
+	retryCount := 0
+
+	// Цикл для повторных попыток
+	for retryCount <= maxRetries {
+		// Если это не первая попытка, выводим информацию о повторе
+		if retryCount > 0 {
+			log.Printf("Retry %d/%d for order %s", retryCount, maxRetries, orderNumber)
+		}
+
+		// Делаем запрос к API
+		response, err, shouldRetry, waitTime := c.makeRequest(orderNumber)
+
+		// Если нет ошибки или не нужно повторять запрос, возвращаем результат
+		if err == nil || !shouldRetry {
+			return response, err
+		}
+
+		// Сохраняем последнюю ошибку для возможного возврата
+		lastErr = err
+
+		// Если достигнуто максимальное количество повторов, завершаем
+		if retryCount >= maxRetries {
+			break
+		}
+
+		// Увеличиваем счетчик повторов
+		retryCount++
+
+		// Ждем перед следующей попыткой
+		log.Printf("Waiting %d seconds before next retry for order %s", waitTime, orderNumber)
+		time.Sleep(time.Duration(waitTime) * time.Second)
+	}
+
+	// Если все попытки неудачны, возвращаем последнюю ошибку
+	return nil, fmt.Errorf("max retries exceeded: %w", lastErr)
+}
+
+// makeRequest выполняет запрос к системе начислений
+// Возвращает ответ, ошибку, флаг необходимости повтора и время ожидания
+func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, error, bool, int) {
 	url := fmt.Sprintf("%s/api/orders/%s", c.baseURL, orderNumber)
 
-	resp, err := c.httpClient.Get(url)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create request: %w", err), false, 0
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		// Сетевые ошибки обычно временные, повторяем запрос
+		return nil, fmt.Errorf("failed to send request: %w", err), true, 5
 	}
 	defer resp.Body.Close()
 
@@ -43,19 +101,42 @@ func (c *AccrualClient) GetOrderAccrual(orderNumber string) (*AccrualResponse, e
 	case http.StatusOK:
 		var accrualResp AccrualResponse
 		if err := json.NewDecoder(resp.Body).Decode(&accrualResp); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to decode response: %w", err), false, 0
 		}
-		return &accrualResp, nil
+		return &accrualResp, nil, false, 0
+
 	case http.StatusNoContent:
-		return nil, nil
+		return nil, nil, false, 0
+
 	case http.StatusTooManyRequests:
-		// Можно добавить логику ретраев здесь
-		return nil, fmt.Errorf("rate limit exceeded")
+		// Извлекаем время ожидания из заголовка
+		retryAfter := resp.Header.Get("Retry-After")
+		waitTime := defaultBackoff
+
+		if retryAfter != "" {
+			if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+				waitTime = seconds
+
+				// Ограничиваем максимальное время ожидания
+				if waitTime > maxBackoff {
+					waitTime = maxBackoff
+				}
+			}
+		}
+
+		return nil, fmt.Errorf("rate limit exceeded, retry after %d seconds", waitTime), true, waitTime
+
+	case http.StatusInternalServerError:
+		// Внутренняя ошибка сервера, возможно временная, повторяем запрос
+		return nil, fmt.Errorf("server error: %d", resp.StatusCode), true, 10
+
 	default:
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		// Другие ошибки не повторяем
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode), false, 0
 	}
 }
 
+// MapStatusToOrderStatus конвертирует статус из системы начислений в статус нашей системы
 func (c *AccrualClient) MapStatusToOrderStatus(status string) model.OrderStatus {
 	switch status {
 	case "REGISTERED":

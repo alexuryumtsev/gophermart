@@ -15,7 +15,7 @@ func NewConfig() *Config {
 	var cfg Config
 
 	// Парсим флаги
-	flag.StringVar(&cfg.RunAddress, "a", ":8080", "Address and port to run server")
+	flag.StringVar(&cfg.RunAddress, "a", ":8081", "Address and port to run server")
 	flag.StringVar(&cfg.DatabaseURI, "d", "", "Database connection URI")
 	flag.StringVar(&cfg.AccrualSystemAddress, "r", "", "Accrual system address")
 	flag.Parse()

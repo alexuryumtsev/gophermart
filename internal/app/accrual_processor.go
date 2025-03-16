@@ -64,6 +64,8 @@ func (p *AccrualProcessor) processOrders() {
 	}
 
 	for _, order := range orders {
+		log.Printf("Begin accrual for order %s", order.Number)
+
 		// Делаем запрос к системе начислений
 		accrualResp, err := p.accrualClient.GetOrderAccrual(order.Number)
 		if err != nil {
@@ -76,8 +78,11 @@ func (p *AccrualProcessor) processOrders() {
 		}
 
 		if accrualResp == nil {
+			log.Printf("Response return null for order %s. Continue.", order.Number)
 			continue
 		}
+
+		log.Printf("Update status for order %s", order.Number)
 
 		// Обновляем статус заказа
 		newStatus := p.accrualClient.MapStatusToOrderStatus(accrualResp.Status)
@@ -100,5 +105,8 @@ func (p *AccrualProcessor) processOrders() {
 				log.Printf("Error adding accrual transaction: %v", err)
 			}
 		}
+
+		log.Printf("Success update status for order %s", order.Number)
+		log.Printf("End accrual for order %s", order.Number)
 	}
 }
