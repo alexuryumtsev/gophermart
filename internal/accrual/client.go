@@ -82,18 +82,18 @@ func (c *AccrualClient) GetOrderAccrual(orderNumber string) (*AccrualResponse, e
 
 // makeRequest выполняет запрос к системе начислений
 // Возвращает ответ, ошибку, флаг необходимости повтора и время ожидания
-func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, error, bool, int) {
+func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, bool, int, error) {
 	url := fmt.Sprintf("%s/api/orders/%s", c.baseURL, orderNumber)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err), false, 0
+		return nil, false, 0, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		// Сетевые ошибки обычно временные, повторяем запрос
-		return nil, fmt.Errorf("failed to send request: %w", err), true, 5
+		return nil, true, 5, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -101,12 +101,12 @@ func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, error
 	case http.StatusOK:
 		var accrualResp AccrualResponse
 		if err := json.NewDecoder(resp.Body).Decode(&accrualResp); err != nil {
-			return nil, fmt.Errorf("failed to decode response: %w", err), false, 0
+			return nil, false, 0, fmt.Errorf("failed to decode response: %w", err)
 		}
-		return &accrualResp, nil, false, 0
+		return &accrualResp, false, 0, nil
 
 	case http.StatusNoContent:
-		return nil, nil, false, 0
+		return nil, false, 0, nil
 
 	case http.StatusTooManyRequests:
 		// Извлекаем время ожидания из заголовка
@@ -124,15 +124,15 @@ func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, error
 			}
 		}
 
-		return nil, fmt.Errorf("rate limit exceeded, retry after %d seconds", waitTime), true, waitTime
+		return nil, true, waitTime, fmt.Errorf("rate limit exceeded, retry after %d seconds", waitTime)
 
 	case http.StatusInternalServerError:
 		// Внутренняя ошибка сервера, возможно временная, повторяем запрос
-		return nil, fmt.Errorf("server error: %d", resp.StatusCode), true, 10
+		return nil, true, 10, fmt.Errorf("server error: %d", resp.StatusCode)
 
 	default:
 		// Другие ошибки не повторяем
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode), false, 0
+		return nil, false, 0, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 }
 
