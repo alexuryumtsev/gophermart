@@ -58,22 +58,24 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Пытаемся создать заказ
-	order, err := h.orderRepo.Create(ctx, orderNumber, userID)
+	order, isUserOrder, err := h.orderRepo.Create(ctx, orderNumber, userID)
 	if err != nil {
-		if strings.Contains(err.Error(), "already exists for another user") {
-			http.Error(w, "Order already uploaded by another user", http.StatusConflict)
-			return
-		}
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	if !order.UploadedAt.IsZero() {
-		w.WriteHeader(http.StatusOK)
-	} else {
-		// Новый заказ был принят в обработку
-		w.WriteHeader(http.StatusAccepted)
+	if order == nil && !isUserOrder {
+		http.Error(w, "Order already uploaded by another user", http.StatusConflict)
+		return
 	}
+
+	if order != nil && isUserOrder {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Новый заказ был принят в обработку
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {

@@ -4,7 +4,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/alexuryumtsev/gophermart/internal/model"
@@ -20,18 +19,19 @@ func NewOrderRepository(db *pgxpool.Pool) *OrderRepository {
 	return &OrderRepository{db: db}
 }
 
-func (r *OrderRepository) Create(ctx context.Context, number string, userID int) (*model.Order, error) {
+func (r *OrderRepository) Create(ctx context.Context, number string, userID int) (*model.Order, bool, error) {
 	// Проверяем, существует ли заказ в системе
 	existingOrder, err := r.GetByNumber(ctx, number)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, err
+		return nil, false, err
 	}
 
 	if existingOrder != nil {
 		if existingOrder.UserID == userID {
-			return existingOrder, nil // Заказ уже загружен этим пользователем
+			return existingOrder, true, nil // Заказ уже загружен этим пользователем
 		}
-		return nil, fmt.Errorf("order already exists for another user")
+
+		return nil, false, nil
 	}
 
 	// Создаем заказ
@@ -64,10 +64,10 @@ func (r *OrderRepository) Create(ctx context.Context, number string, userID int)
 	)
 
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return order, nil
+	return order, false, nil
 }
 
 func (r *OrderRepository) GetByNumber(ctx context.Context, number string) (*model.Order, error) {
