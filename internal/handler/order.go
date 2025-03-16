@@ -68,12 +68,11 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if order.UploadedAt.IsZero() {
+	if !order.UploadedAt.IsZero() {
+		w.WriteHeader(http.StatusOK)
+	} else {
 		// Новый заказ был принят в обработку
 		w.WriteHeader(http.StatusAccepted)
-	} else {
-		// Заказ уже был загружен этим пользователем
-		w.WriteHeader(http.StatusOK)
 	}
 }
 
