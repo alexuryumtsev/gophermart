@@ -128,7 +128,7 @@ func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, bool,
 
 	case http.StatusInternalServerError:
 		// Внутренняя ошибка сервера, возможно временная, повторяем запрос
-		return nil, true, 10, fmt.Errorf("server error: %d", resp.StatusCode)
+		return nil, true, 5, fmt.Errorf("server error: %d", resp.StatusCode)
 
 	default:
 		// Другие ошибки не повторяем
