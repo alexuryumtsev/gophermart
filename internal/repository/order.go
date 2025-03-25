@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	ErrOrderUserIsExist = errors.New("Order is already uploaded by this user")
-	ErrOrderIsExist     = errors.New("Order is already exist")
+	ErrOrderUserIsExist = errors.New("order is already uploaded by this user")
+	ErrOrderIsExist     = errors.New("order is already exist")
 )
 
 type OrderRepositoryImpl struct {
