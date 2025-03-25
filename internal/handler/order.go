@@ -49,11 +49,6 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 	// Используем сервис для создания заказа
 	order, err := h.orderService.CreateOrder(ctx, orderNumber, userID)
 
-	if order == nil && err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
 	if order != nil && errors.Is(err, repository.ErrOrderIsExist) {
 		http.Error(w, "Order already uploaded by another user", http.StatusConflict)
 		return
@@ -61,6 +56,11 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 
 	if order != nil && errors.Is(err, repository.ErrOrderUserIsExist) {
 		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if order == nil && err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 

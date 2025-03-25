@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/alexuryumtsev/gophermart/internal/model"
 	"github.com/alexuryumtsev/gophermart/internal/repository"
@@ -34,10 +33,7 @@ func (s *OrderServiceImpl) CreateOrder(ctx context.Context, number string, userI
 	// Создаем заказ
 	order, err := s.orderRepo.Create(ctx, number, userID)
 	if err != nil {
-		if strings.Contains(err.Error(), "already exists for another user") {
-			return nil, errors.New("order already uploaded by another user")
-		}
-		return nil, fmt.Errorf("failed to create order: %w", err)
+		return order, err
 	}
 
 	return order, nil
