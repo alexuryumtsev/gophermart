@@ -1,30 +1,25 @@
-// repository/balance.go
 package repository
 
 import (
 	"context"
 
 	"github.com/alexuryumtsev/gophermart/internal/model"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type BalanceRepository struct {
-	db *pgxpool.Pool
+type BalanceRepositoryImpl struct {
+	db PgxPool
 }
 
-func NewBalanceRepository(db *pgxpool.Pool) *BalanceRepository {
-	return &BalanceRepository{db: db}
+// Переименовываем конструктор
+func NewBalanceRepository(db PgxPool) BalanceRepository {
+	return &BalanceRepositoryImpl{db: db}
 }
 
-func (r *BalanceRepository) GetBalance(ctx context.Context, userID int) (*model.Balance, error) {
+func (r *BalanceRepositoryImpl) GetBalance(ctx context.Context, userID int) (*model.Balance, error) {
 	balance := &model.Balance{}
 
 	// Получаем сумму начислений
-	accrualQuery := `
-        SELECT COALESCE(SUM(amount), 0)
-        FROM balance_transactions
-        WHERE user_id = $1 AND operation_type = $2
-    `
+	accrualQuery := getQueryBalance()
 	var accrual float64
 	err := r.db.QueryRow(ctx, accrualQuery, userID, model.OperationTypeAccrual).Scan(&accrual)
 	if err != nil {
@@ -32,11 +27,7 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userID int) (*model.
 	}
 
 	// Получаем сумму списаний
-	withdrawalQuery := `
-        SELECT COALESCE(SUM(amount), 0)
-        FROM balance_transactions
-        WHERE user_id = $1 AND operation_type = $2
-    `
+	withdrawalQuery := getQueryBalance()
 	var withdrawal float64
 	err = r.db.QueryRow(ctx, withdrawalQuery, userID, model.OperationTypeWithdrawal).Scan(&withdrawal)
 	if err != nil {
@@ -49,7 +40,15 @@ func (r *BalanceRepository) GetBalance(ctx context.Context, userID int) (*model.
 	return balance, nil
 }
 
-func (r *BalanceRepository) AddTransaction(
+func getQueryBalance() string {
+	return `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM balance_transactions
+		WHERE user_id = $1 AND operation_type = $2
+	`
+}
+
+func (r *BalanceRepositoryImpl) AddTransaction(
 	ctx context.Context,
 	userID int,
 	orderNumber string,
@@ -85,7 +84,7 @@ func (r *BalanceRepository) AddTransaction(
 	return tx, nil
 }
 
-func (r *BalanceRepository) GetWithdrawals(ctx context.Context, userID int) ([]model.BalanceTransaction, error) {
+func (r *BalanceRepositoryImpl) GetWithdrawals(ctx context.Context, userID int) ([]model.BalanceTransaction, error) {
 	query := `
         SELECT id, user_id, order_number, amount, operation_type, processed_at
         FROM balance_transactions

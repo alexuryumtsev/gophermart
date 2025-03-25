@@ -1,19 +1,16 @@
-// handler/balance.go
 package handler
 
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/alexuryumtsev/gophermart/internal/middleware"
-	"github.com/alexuryumtsev/gophermart/internal/model"
-	"github.com/alexuryumtsev/gophermart/internal/repository"
+	"github.com/alexuryumtsev/gophermart/internal/service"
 )
 
 type BalanceHandler struct {
-	balanceRepo *repository.BalanceRepository
+	balanceService service.BalanceService
 }
 
 type WithdrawRequest struct {
@@ -21,12 +18,13 @@ type WithdrawRequest struct {
 	Sum   float64 `json:"sum"`
 }
 
-func NewBalanceHandler(balanceRepo *repository.BalanceRepository) *BalanceHandler {
+func NewBalanceHandler(balanceService service.BalanceService) *BalanceHandler {
 	return &BalanceHandler{
-		balanceRepo: balanceRepo,
+		balanceService: balanceService,
 	}
 }
 
+// GetBalance обрабатывает запрос на получение текущего баланса пользователя
 func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -36,7 +34,8 @@ func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	balance, err := h.balanceRepo.GetBalance(ctx, userID)
+	// Используем сервис для получения баланса пользователя
+	balance, err := h.balanceService.GetUserBalance(ctx, userID)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -46,6 +45,7 @@ func (h *BalanceHandler) GetBalance(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(balance)
 }
 
+// Withdraw обрабатывает запрос на списание средств с баланса
 func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -59,48 +59,26 @@ func (h *BalanceHandler) Withdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем валидность номера заказа
-	if _, err := strconv.ParseInt(req.Order, 10, 64); err != nil {
-		http.Error(w, "Invalid order number format", http.StatusUnprocessableEntity)
-		return
-	}
-
-	// Проверяем валидность по алгоритму Луна
-	if !validateLuhn(req.Order) {
-		http.Error(w, "Invalid order number format", http.StatusUnprocessableEntity)
-		return
-	}
-
 	ctx := r.Context()
 
-	// Проверяем достаточно ли средств
-	balance, err := h.balanceRepo.GetBalance(ctx, userID)
+	// Используем сервис для списания средств (с внутренней валидацией)
+	err := h.balanceService.WithdrawFunds(ctx, userID, req.Order, req.Sum)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if balance.Current < req.Sum {
-		http.Error(w, "Insufficient funds", http.StatusPaymentRequired)
-		return
-	}
-
-	// Создаем транзакцию списания
-	_, err = h.balanceRepo.AddTransaction(
-		ctx,
-		userID,
-		req.Order,
-		req.Sum,
-		model.OperationTypeWithdrawal,
-	)
-	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		switch err {
+		case service.ErrInvalidOrderFormat:
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		case service.ErrInsufficientFunds:
+			http.Error(w, err.Error(), http.StatusPaymentRequired)
+		default:
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 }
 
+// GetWithdrawals обрабатывает запрос на получение истории списаний пользователя
 func (h *BalanceHandler) GetWithdrawals(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -110,7 +88,8 @@ func (h *BalanceHandler) GetWithdrawals(w http.ResponseWriter, r *http.Request) 
 
 	ctx := r.Context()
 
-	withdrawals, err := h.balanceRepo.GetWithdrawals(ctx, userID)
+	// Используем сервис для получения истории списаний
+	withdrawals, err := h.balanceService.GetUserWithdrawals(ctx, userID)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

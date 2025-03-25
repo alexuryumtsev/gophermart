@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -10,18 +11,20 @@ import (
 	"github.com/alexuryumtsev/gophermart/internal/repository"
 )
 
+// AccrualProcessor обрабатывает заказы для расчета начислений
 type AccrualProcessor struct {
-	orderRepo     *repository.OrderRepository
-	balanceRepo   *repository.BalanceRepository
-	accrualClient *accrual.AccrualClient
+	orderRepo     repository.OrderRepository
+	balanceRepo   repository.BalanceRepository
+	accrualClient repository.AccrualClient
 	interval      time.Duration
 	done          chan struct{}
 }
 
+// NewAccrualProcessor создает новый процессор начислений
 func NewAccrualProcessor(
-	orderRepo *repository.OrderRepository,
-	balanceRepo *repository.BalanceRepository,
-	accrualClient *accrual.AccrualClient,
+	orderRepo repository.OrderRepository,
+	balanceRepo repository.BalanceRepository,
+	accrualClient repository.AccrualClient,
 	interval time.Duration,
 ) *AccrualProcessor {
 	return &AccrualProcessor{
@@ -70,10 +73,13 @@ func (p *AccrualProcessor) processOrders() {
 		accrualResp, err := p.accrualClient.GetOrderAccrual(order.Number)
 		if err != nil {
 			log.Printf("Error getting accrual for order %s: %v", order.Number, err)
+
 			// Если достигнут лимит запросов, прерываем обработку
-			if err.Error() == "rate limit exceeded" {
+			if errors.Is(err, accrual.ErrRateLimitExceeded) {
+				log.Printf("Rate limit exceeded, will retry later")
 				break
 			}
+
 			continue
 		}
 

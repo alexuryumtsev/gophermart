@@ -1,28 +1,29 @@
-// handler/order.go
 package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/alexuryumtsev/gophermart/internal/middleware"
 	"github.com/alexuryumtsev/gophermart/internal/repository"
+	"github.com/alexuryumtsev/gophermart/internal/service"
 )
 
 type OrderHandler struct {
-	orderRepo *repository.OrderRepository
+	orderService service.OrderService
 }
 
-func NewOrderHandler(orderRepo *repository.OrderRepository) *OrderHandler {
+func NewOrderHandler(orderService service.OrderService) *OrderHandler {
 	return &OrderHandler{
-		orderRepo: orderRepo,
+		orderService: orderService,
 	}
 }
 
+// UploadOrder обрабатывает запрос на загрузку номера заказа
 func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -43,33 +44,22 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, что номер заказа состоит только из цифр
-	if _, err := strconv.ParseInt(orderNumber, 10, 64); err != nil {
-		http.Error(w, "Invalid order number format", http.StatusUnprocessableEntity)
-		return
-	}
-
-	// Проверяем валидность по алгоритму Луна
-	if !validateLuhn(orderNumber) {
-		http.Error(w, "Invalid order number format", http.StatusUnprocessableEntity)
-		return
-	}
-
 	ctx := r.Context()
 
-	// Пытаемся создать заказ
-	order, isUserOrder, err := h.orderRepo.Create(ctx, orderNumber, userID)
-	if err != nil {
+	// Используем сервис для создания заказа
+	order, err := h.orderService.CreateOrder(ctx, orderNumber, userID)
+
+	if order == nil && err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	if order == nil && !isUserOrder {
+	if order != nil && errors.Is(err, repository.ErrOrderIsExist) {
 		http.Error(w, "Order already uploaded by another user", http.StatusConflict)
 		return
 	}
 
-	if order != nil && isUserOrder {
+	if order != nil && errors.Is(err, repository.ErrOrderUserIsExist) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -78,6 +68,7 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// GetOrders обрабатывает запрос на получение списка заказов пользователя
 func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 	userID, ok := middleware.GetUserID(r.Context())
 	if !ok {
@@ -87,7 +78,8 @@ func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	orders, err := h.orderRepo.GetByUserID(ctx, userID)
+	// Используем сервис для получения заказов пользователя
+	orders, err := h.orderService.GetUserOrders(ctx, userID)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -118,24 +110,4 @@ func (h *OrderHandler) GetOrders(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
-}
-
-// Валидация номера заказа по алгоритму Луна
-func validateLuhn(number string) bool {
-	var sum int
-	var alternate bool
-
-	for i := len(number) - 1; i >= 0; i-- {
-		n, _ := strconv.Atoi(string(number[i]))
-		if alternate {
-			n *= 2
-			if n > 9 {
-				n = (n % 10) + 1
-			}
-		}
-		sum += n
-		alternate = !alternate
-	}
-
-	return sum%10 == 0
 }

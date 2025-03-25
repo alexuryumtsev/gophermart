@@ -1,8 +1,8 @@
-// internal/accrual/client.go
 package accrual
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,6 +10,12 @@ import (
 	"time"
 
 	"github.com/alexuryumtsev/gophermart/internal/model"
+	"github.com/alexuryumtsev/gophermart/internal/repository"
+)
+
+var (
+	ErrRateLimitExceeded = errors.New("rate limit exceeded")
+	ErrServerError       = errors.New("server error")
 )
 
 // настройки для ретраев
@@ -19,7 +25,7 @@ const (
 	maxBackoff     = 300 // Максимальное время ожидания в секундах
 )
 
-type AccrualClient struct {
+type AccrualClientImpl struct {
 	baseURL    string
 	httpClient *http.Client
 }
@@ -30,8 +36,8 @@ type AccrualResponse struct {
 	Accrual *float64 `json:"accrual,omitempty"`
 }
 
-func NewAccrualClient(baseURL string) *AccrualClient {
-	return &AccrualClient{
+func NewAccrualClient(baseURL string) repository.AccrualClient {
+	return &AccrualClientImpl{
 		baseURL: baseURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
@@ -41,7 +47,7 @@ func NewAccrualClient(baseURL string) *AccrualClient {
 
 // GetOrderAccrual делает запрос к системе расчета начислений для получения информации по заказу
 // с автоматическими повторными попытками в случае ошибок превышения лимита запросов
-func (c *AccrualClient) GetOrderAccrual(orderNumber string) (*AccrualResponse, error) {
+func (c *AccrualClientImpl) GetOrderAccrual(orderNumber string) (*repository.AccrualResponse, error) {
 	var lastErr error
 	retryCount := 0
 
@@ -57,7 +63,14 @@ func (c *AccrualClient) GetOrderAccrual(orderNumber string) (*AccrualResponse, e
 
 		// Если нет ошибки или не нужно повторять запрос, возвращаем результат
 		if err == nil || !shouldRetry {
-			return response, err
+			if response == nil {
+				return nil, err
+			}
+			return &repository.AccrualResponse{
+				Order:   response.Order,
+				Status:  response.Status,
+				Accrual: response.Accrual,
+			}, err
 		}
 
 		// Сохраняем последнюю ошибку для возможного возврата
@@ -82,7 +95,7 @@ func (c *AccrualClient) GetOrderAccrual(orderNumber string) (*AccrualResponse, e
 
 // makeRequest выполняет запрос к системе начислений
 // Возвращает ответ, ошибку, флаг необходимости повтора и время ожидания
-func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, bool, int, error) {
+func (c *AccrualClientImpl) makeRequest(orderNumber string) (*AccrualResponse, bool, int, error) {
 	url := fmt.Sprintf("%s/api/orders/%s", c.baseURL, orderNumber)
 
 	req, err := http.NewRequest(http.MethodGet, url, nil)
@@ -123,8 +136,7 @@ func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, bool,
 				}
 			}
 		}
-
-		return nil, true, waitTime, fmt.Errorf("rate limit exceeded, retry after %d seconds", waitTime)
+		return nil, true, waitTime, ErrRateLimitExceeded
 
 	case http.StatusInternalServerError:
 		// Внутренняя ошибка сервера, возможно временная, повторяем запрос
@@ -137,7 +149,7 @@ func (c *AccrualClient) makeRequest(orderNumber string) (*AccrualResponse, bool,
 }
 
 // MapStatusToOrderStatus конвертирует статус из системы начислений в статус нашей системы
-func (c *AccrualClient) MapStatusToOrderStatus(status string) model.OrderStatus {
+func (c *AccrualClientImpl) MapStatusToOrderStatus(status string) model.OrderStatus {
 	switch status {
 	case "REGISTERED":
 		return model.OrderStatusProcessing

@@ -8,16 +8,27 @@ import (
 )
 
 var (
-	jwtSecret = []byte("your-secret-key") // В реальном приложении следует загружать из конфигурации
-	tokenTTL  = 24 * time.Hour
+	tokenTTL = 24 * time.Hour
 )
+
+type JWTManager struct {
+	secretKey []byte
+}
+
+// NewJWTManager создает новый экземпляр JWTManager
+func NewJWTManager(secretKey string) *JWTManager {
+	return &JWTManager{
+		secretKey: []byte(secretKey),
+	}
+}
 
 type Claims struct {
 	UserID int `json:"user_id"`
 	jwt.RegisteredClaims
 }
 
-func GenerateToken(userID int) (string, error) {
+// GenerateToken создает новый JWT токен для пользователя
+func (m *JWTManager) GenerateToken(userID int) (string, error) {
 	claims := &Claims{
 		UserID: userID,
 		RegisteredClaims: jwt.RegisteredClaims{
@@ -27,15 +38,16 @@ func GenerateToken(userID int) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	return token.SignedString(m.secretKey)
 }
 
-func ParseToken(tokenString string) (int, error) {
+// ParseToken проверяет и извлекает данные из JWT токена
+func (m *JWTManager) ParseToken(tokenString string) (int, error) {
 	token, err := jwt.ParseWithClaims(
 		tokenString,
 		&Claims{},
 		func(token *jwt.Token) (interface{}, error) {
-			return jwtSecret, nil
+			return m.secretKey, nil
 		},
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Name}),
 	)

@@ -1,4 +1,3 @@
-// handler/user.go
 package handler
 
 import (
@@ -6,12 +5,17 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/alexuryumtsev/gophermart/internal/auth"
-	"github.com/alexuryumtsev/gophermart/internal/repository"
+	"github.com/alexuryumtsev/gophermart/internal/service"
 )
 
 type UserHandler struct {
-	userRepo *repository.UserRepository
+	userService service.UserService
+}
+
+func NewUserHandler(userService service.UserService) *UserHandler {
+	return &UserHandler{
+		userService: userService,
+	}
 }
 
 type UserCredentials struct {
@@ -19,12 +23,7 @@ type UserCredentials struct {
 	Password string `json:"password"`
 }
 
-func NewUserHandler(userRepo *repository.UserRepository) *UserHandler {
-	return &UserHandler{
-		userRepo: userRepo,
-	}
-}
-
+// Register обрабатывает запрос на регистрацию пользователя
 func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var creds UserCredentials
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
@@ -34,27 +33,19 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Проверяем, существует ли пользователь
-	existingUser, err := h.userRepo.GetByLogin(ctx, creds.Login)
+	// Используем сервис для регистрации пользователя
+	user, err := h.userService.Register(ctx, creds.Login, creds.Password)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if existingUser != nil {
-		http.Error(w, "Login already taken", http.StatusConflict)
-		return
-	}
-
-	// Создаем пользователя
-	user, err := h.userRepo.Create(ctx, creds.Login, creds.Password)
-	if err != nil {
+		if err.Error() == "login already taken" {
+			http.Error(w, "Login already taken", http.StatusConflict)
+			return
+		}
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	// Генерируем JWT токен
-	token, err := auth.GenerateToken(user.ID)
+	token, err := h.userService.GenerateToken(user.ID)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -72,6 +63,7 @@ func (h *UserHandler) Register(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// Login обрабатывает запрос на аутентификацию пользователя
 func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var creds UserCredentials
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
@@ -81,20 +73,15 @@ func (h *UserHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Получаем пользователя по логину
-	user, err := h.userRepo.GetByLogin(ctx, creds.Login)
+	// Используем сервис для аутентификации пользователя
+	user, err := h.userService.Authenticate(ctx, creds.Login, creds.Password)
 	if err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	if user == nil || !h.userRepo.VerifyPassword(user, creds.Password) {
 		http.Error(w, "Invalid login/password pair", http.StatusUnauthorized)
 		return
 	}
 
 	// Генерируем JWT токен
-	token, err := auth.GenerateToken(user.ID)
+	token, err := h.userService.GenerateToken(user.ID)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

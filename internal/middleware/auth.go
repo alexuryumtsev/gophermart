@@ -5,14 +5,24 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/alexuryumtsev/gophermart/internal/auth"
+	"github.com/alexuryumtsev/gophermart/internal/service"
 )
 
 type ContextKey string
 
 const UserIDKey ContextKey = "userID"
 
-func AuthMiddleware(next http.Handler) http.Handler {
+type AuthMiddleware struct {
+	authService service.AuthService
+}
+
+func NewAuthMiddleware(authService service.AuthService) *AuthMiddleware {
+	return &AuthMiddleware{
+		authService: authService,
+	}
+}
+
+func (m *AuthMiddleware) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var tokenStr string
 
@@ -38,7 +48,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		userID, err := auth.ParseToken(tokenStr)
+		userID, err := m.authService.ParseToken(tokenStr)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return

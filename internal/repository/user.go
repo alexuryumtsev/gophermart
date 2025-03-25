@@ -6,19 +6,20 @@ import (
 
 	"github.com/alexuryumtsev/gophermart/internal/model"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type UserRepository struct {
-	db *pgxpool.Pool
+// Обновление структуры UserRepository
+type UserRepositoryImpl struct {
+	db PgxPool
 }
 
-func NewUserRepository(db *pgxpool.Pool) *UserRepository {
-	return &UserRepository{db: db}
+// Переименовываем конструктор
+func NewUserRepository(db PgxPool) UserRepository {
+	return &UserRepositoryImpl{db: db}
 }
 
-func (r *UserRepository) Create(ctx context.Context, login, password string) (*model.User, error) {
+func (r *UserRepositoryImpl) Create(ctx context.Context, login, password string) (*model.User, error) {
 	// Хешируем пароль
 	passwordHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -42,7 +43,7 @@ func (r *UserRepository) Create(ctx context.Context, login, password string) (*m
 	return user, nil
 }
 
-func (r *UserRepository) GetByLogin(ctx context.Context, login string) (*model.User, error) {
+func (r *UserRepositoryImpl) GetByLogin(ctx context.Context, login string) (*model.User, error) {
 	user := &model.User{}
 	query := `SELECT id, login, password_hash, created_at FROM users WHERE login = $1`
 
@@ -63,7 +64,7 @@ func (r *UserRepository) GetByLogin(ctx context.Context, login string) (*model.U
 	return user, nil
 }
 
-func (r *UserRepository) VerifyPassword(user *model.User, password string) bool {
+func (r *UserRepositoryImpl) VerifyPassword(user *model.User, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password))
 	return err == nil
 }

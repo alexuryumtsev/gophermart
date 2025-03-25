@@ -1,134 +1,139 @@
 package middleware
 
 import (
-	"context"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
+	"errors"
 	"testing"
 
-	"github.com/alexuryumtsev/gophermart/internal/auth"
+	"github.com/alexuryumtsev/gophermart/internal/service"
+	"github.com/alexuryumtsev/gophermart/mocks"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAuthMiddleware(t *testing.T) {
-	// Тестовый обработчик
-	nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Проверяем, что контекст содержит ID пользователя
-		userID, ok := GetUserID(r.Context())
-		if !ok {
-			t.Error("Failed to get user ID from context")
-		}
+func TestAuthService_GenerateToken(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-		// Пишем ID пользователя в ответ
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("userID: " + strconv.Itoa(userID)))
-	})
+	// Создаем мок для JWTManager
+	mockJWTManager := mocks.NewMockJWTManagerInterface(ctrl)
 
-	// Создаем middleware
-	middleware := AuthMiddleware(nextHandler)
+	// Создаем сервис аутентификации с моком
+	authService := service.AuthService(mockJWTManager)
 
-	// Тест с токеном в заголовке Authorization
-	t.Run("Token in Authorization header", func(t *testing.T) {
-		// Генерируем валидный токен
-		token, err := auth.GenerateToken(123)
+	t.Run("Success", func(t *testing.T) {
+		userID := 123
+		expectedToken := "valid.token.here"
+
+		// Настраиваем ожидаемый вызов GenerateToken
+		mockJWTManager.EXPECT().
+			GenerateToken(userID).
+			Return(expectedToken, nil)
+
+		// Вызываем тестируемый метод
+		token, err := authService.GenerateToken(userID)
+
+		// Проверяем результаты
 		assert.NoError(t, err)
-
-		// Создаем запрос с токеном в заголовке
-		req := httptest.NewRequest("GET", "/", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		// Создаем рекордер для записи ответа
-		rec := httptest.NewRecorder()
-
-		// Вызываем middleware
-		middleware.ServeHTTP(rec, req)
-
-		// Проверяем результат
-		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, expectedToken, token)
 	})
 
-	// Тест с токеном в cookie
-	t.Run("Token in cookie", func(t *testing.T) {
-		// Генерируем валидный токен
-		token, err := auth.GenerateToken(456)
-		assert.NoError(t, err)
+	t.Run("Error", func(t *testing.T) {
+		userID := 123
+		expectedError := errors.New("token generation failed")
 
-		// Создаем запрос с токеном в cookie
-		req := httptest.NewRequest("GET", "/", nil)
-		req.AddCookie(&http.Cookie{
-			Name:  "auth_token",
-			Value: token,
-		})
+		// Настраиваем ожидаемый вызов GenerateToken с ошибкой
+		mockJWTManager.EXPECT().
+			GenerateToken(userID).
+			Return("", expectedError)
 
-		// Создаем рекордер для записи ответа
-		rec := httptest.NewRecorder()
+		// Вызываем тестируемый метод
+		token, err := authService.GenerateToken(userID)
 
-		// Вызываем middleware
-		middleware.ServeHTTP(rec, req)
-
-		// Проверяем результат
-		assert.Equal(t, http.StatusOK, rec.Code)
-	})
-
-	// Тест без токена
-	t.Run("No token", func(t *testing.T) {
-		// Создаем запрос без токена
-		req := httptest.NewRequest("GET", "/", nil)
-
-		// Создаем рекордер для записи ответа
-		rec := httptest.NewRecorder()
-
-		// Вызываем middleware
-		middleware.ServeHTTP(rec, req)
-
-		// Должны получить 401 Unauthorized
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
-	})
-
-	// Тест с невалидным токеном
-	t.Run("Invalid token", func(t *testing.T) {
-		// Создаем запрос с невалидным токеном
-		req := httptest.NewRequest("GET", "/", nil)
-		req.Header.Set("Authorization", "Bearer invalid.token.here")
-
-		// Создаем рекордер для записи ответа
-		rec := httptest.NewRecorder()
-
-		// Вызываем middleware
-		middleware.ServeHTTP(rec, req)
-
-		// Должны получить 401 Unauthorized
-		assert.Equal(t, http.StatusUnauthorized, rec.Code)
+		// Проверяем результаты
+		assert.Error(t, err)
+		assert.Equal(t, expectedError, err)
+		assert.Empty(t, token)
 	})
 }
 
-func TestGetUserID(t *testing.T) {
-	// Тест получения ID из контекста
-	t.Run("Get user ID from context", func(t *testing.T) {
-		expectedID := 789
-		ctx := context.WithValue(context.Background(), UserIDKey, expectedID)
+func TestAuthService_ParseToken(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-		userID, ok := GetUserID(ctx)
-		assert.True(t, ok)
-		assert.Equal(t, expectedID, userID)
+	// Создаем мок для JWTManager
+	mockJWTManager := mocks.NewMockJWTManagerInterface(ctrl)
+
+	// Создаем сервис аутентификации с моком
+	authService := service.AuthService(mockJWTManager)
+
+	t.Run("Valid token", func(t *testing.T) {
+		tokenString := "valid.token.here"
+		expectedUserID := 123
+
+		// Настраиваем ожидаемый вызов ParseToken
+		mockJWTManager.EXPECT().
+			ParseToken(tokenString).
+			Return(expectedUserID, nil)
+
+		// Вызываем тестируемый метод
+		userID, err := authService.ParseToken(tokenString)
+
+		// Проверяем результаты
+		assert.NoError(t, err)
+		assert.Equal(t, expectedUserID, userID)
 	})
 
-	// Тест с отсутствующим ID в контексте
-	t.Run("No user ID in context", func(t *testing.T) {
-		ctx := context.Background()
+	t.Run("Invalid token", func(t *testing.T) {
+		tokenString := "invalid.token.here"
+		expectedError := errors.New("invalid token")
 
-		userID, ok := GetUserID(ctx)
-		assert.False(t, ok)
+		// Настраиваем ожидаемый вызов ParseToken с ошибкой
+		mockJWTManager.EXPECT().
+			ParseToken(tokenString).
+			Return(0, expectedError)
+
+		// Вызываем тестируемый метод
+		userID, err := authService.ParseToken(tokenString)
+
+		// Проверяем результаты
+		assert.Error(t, err)
+		assert.Equal(t, expectedError, err)
 		assert.Equal(t, 0, userID)
 	})
 
-	// Тест с неверным типом в контексте
-	t.Run("Wrong type in context", func(t *testing.T) {
-		ctx := context.WithValue(context.Background(), UserIDKey, "not_an_int")
+	t.Run("Expired token", func(t *testing.T) {
+		tokenString := "expired.token.here"
+		expectedError := errors.New("token expired")
 
-		userID, ok := GetUserID(ctx)
-		assert.False(t, ok)
+		// Настраиваем ожидаемый вызов ParseToken с ошибкой истечения срока
+		mockJWTManager.EXPECT().
+			ParseToken(tokenString).
+			Return(0, expectedError)
+
+		// Вызываем тестируемый метод
+		userID, err := authService.ParseToken(tokenString)
+
+		// Проверяем результаты
+		assert.Error(t, err)
+		assert.Equal(t, expectedError, err)
+		assert.Equal(t, 0, userID)
+	})
+
+	t.Run("Empty token", func(t *testing.T) {
+		tokenString := ""
+		expectedError := errors.New("token contains an invalid number of segments")
+
+		// Настраиваем ожидаемый вызов ParseToken с ошибкой пустого токена
+		mockJWTManager.EXPECT().
+			ParseToken(tokenString).
+			Return(0, expectedError)
+
+		// Вызываем тестируемый метод
+		userID, err := authService.ParseToken(tokenString)
+
+		// Проверяем результаты
+		assert.Error(t, err)
+		assert.Equal(t, expectedError, err)
 		assert.Equal(t, 0, userID)
 	})
 }

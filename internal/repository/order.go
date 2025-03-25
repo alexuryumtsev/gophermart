@@ -1,4 +1,3 @@
-// repository/order.go
 package repository
 
 import (
@@ -8,30 +7,35 @@ import (
 
 	"github.com/alexuryumtsev/gophermart/internal/model"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type OrderRepository struct {
-	db *pgxpool.Pool
+var (
+	ErrOrderUserIsExist = errors.New("Order is already uploaded by this user")
+	ErrOrderIsExist     = errors.New("Order is already exist")
+)
+
+type OrderRepositoryImpl struct {
+	db PgxPool
 }
 
-func NewOrderRepository(db *pgxpool.Pool) *OrderRepository {
-	return &OrderRepository{db: db}
+// Переименовываем конструктор
+func NewOrderRepository(db PgxPool) OrderRepository {
+	return &OrderRepositoryImpl{db: db}
 }
 
-func (r *OrderRepository) Create(ctx context.Context, number string, userID int) (*model.Order, bool, error) {
+func (r *OrderRepositoryImpl) Create(ctx context.Context, number string, userID int) (*model.Order, error) {
 	// Проверяем, существует ли заказ в системе
 	existingOrder, err := r.GetByNumber(ctx, number)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, err
+		return nil, err
 	}
 
 	if existingOrder != nil {
 		if existingOrder.UserID == userID {
-			return existingOrder, true, nil // Заказ уже загружен этим пользователем
+			return existingOrder, ErrOrderUserIsExist
 		}
 
-		return nil, false, nil
+		return existingOrder, ErrOrderIsExist
 	}
 
 	// Создаем заказ
@@ -64,13 +68,13 @@ func (r *OrderRepository) Create(ctx context.Context, number string, userID int)
 	)
 
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 
-	return order, false, nil
+	return order, nil
 }
 
-func (r *OrderRepository) GetByNumber(ctx context.Context, number string) (*model.Order, error) {
+func (r *OrderRepositoryImpl) GetByNumber(ctx context.Context, number string) (*model.Order, error) {
 	order := &model.Order{}
 	query := `SELECT number, user_id, status, accrual, uploaded_at FROM orders WHERE number = $1`
 
@@ -89,7 +93,7 @@ func (r *OrderRepository) GetByNumber(ctx context.Context, number string) (*mode
 	return order, nil
 }
 
-func (r *OrderRepository) GetByUserID(ctx context.Context, userID int) ([]model.Order, error) {
+func (r *OrderRepositoryImpl) GetByUserID(ctx context.Context, userID int) ([]model.Order, error) {
 	query := `
         SELECT number, user_id, status, accrual, uploaded_at
         FROM orders
@@ -126,13 +130,13 @@ func (r *OrderRepository) GetByUserID(ctx context.Context, userID int) ([]model.
 	return orders, nil
 }
 
-func (r *OrderRepository) UpdateStatus(ctx context.Context, number string, status model.OrderStatus, accrual *float64) error {
+func (r *OrderRepositoryImpl) UpdateStatus(ctx context.Context, number string, status model.OrderStatus, accrual *float64) error {
 	query := `UPDATE orders SET status = $1, accrual = $2 WHERE number = $3`
 	_, err := r.db.Exec(ctx, query, status, accrual, number)
 	return err
 }
 
-func (r *OrderRepository) GetOrdersForProcessing(ctx context.Context) ([]model.Order, error) {
+func (r *OrderRepositoryImpl) GetOrdersForProcessing(ctx context.Context) ([]model.Order, error) {
 	query := `
         SELECT number, user_id, status, accrual, uploaded_at
         FROM orders

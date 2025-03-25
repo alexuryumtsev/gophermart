@@ -1,4 +1,3 @@
-// internal/router/router.go
 package router
 
 import (
@@ -13,6 +12,7 @@ func NewRouter(
 	userHandler *handler.UserHandler,
 	orderHandler *handler.OrderHandler,
 	balanceHandler *handler.BalanceHandler,
+	authMiddleware *customMiddleware.AuthMiddleware,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -27,7 +27,7 @@ func NewRouter(
 
 	// Маршруты, требующие аутентификации
 	r.Group(func(r chi.Router) {
-		r.Use(customMiddleware.AuthMiddleware)
+		r.Use(authMiddleware.Middleware) // Обновленный middleware
 
 		r.Post("/api/user/orders", orderHandler.UploadOrder)
 		r.Get("/api/user/orders", orderHandler.GetOrders)
