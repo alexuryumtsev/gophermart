@@ -1,4 +1,3 @@
-// internal/service/order.go
 package service
 
 import (
@@ -9,6 +8,10 @@ import (
 	"github.com/alexuryumtsev/gophermart/internal/model"
 	"github.com/alexuryumtsev/gophermart/internal/repository"
 	"github.com/alexuryumtsev/gophermart/internal/validation"
+)
+
+var (
+	ErrInvalidOrderNumberFormat = errors.New("invalid order number format")
 )
 
 // OrderServiceImpl реализует интерфейс OrderService
@@ -27,7 +30,7 @@ func NewOrderService(orderRepo repository.OrderRepository) OrderService {
 func (s *OrderServiceImpl) CreateOrder(ctx context.Context, number string, userID int) (*model.Order, error) {
 	// Валидация номера заказа
 	if !s.ValidateOrderNumber(number) {
-		return nil, errors.New("invalid order number format")
+		return nil, ErrInvalidOrderNumberFormat
 	}
 
 	// Создаем заказ

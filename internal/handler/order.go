@@ -59,6 +59,11 @@ func (h *OrderHandler) UploadOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if order == nil && errors.Is(err, service.ErrInvalidOrderNumberFormat) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		return
+	}
+
 	if order == nil && err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
